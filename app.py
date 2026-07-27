@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from monday_client import LAST_FETCH_WARNINGS, fetch_monday_board_data
+import monday_client
 from agent import query_bi_agent, generate_leadership_briefing
 
 # 1. Page Configuration
@@ -33,17 +33,17 @@ def init_session():
     if "data_warnings" not in st.session_state:
         st.session_state.data_warnings = []
     if "selected_data_view" not in st.session_state:
-        st.session_state.selected_data_view = "deals"
+        st.session_state.selected_data_view = None
 
 
 def load_data(force_reload: bool = False):
     if not st.session_state.data_loaded or force_reload:
         with st.spinner("Syncing Monday.com boards..."):
             try:
-                deals, work_orders = fetch_monday_board_data()
+                deals, work_orders = monday_client.fetch_monday_board_data()
                 st.session_state.deals_df = deals
                 st.session_state.work_orders_df = work_orders
-                st.session_state.data_warnings = LAST_FETCH_WARNINGS.copy()
+                st.session_state.data_warnings = monday_client.LAST_FETCH_WARNINGS.copy()
                 st.session_state.data_loaded = True
                 if deals.empty and work_orders.empty:
                     st.warning("Monday.com sync completed, but no board data was returned.")
@@ -55,17 +55,6 @@ def load_data(force_reload: bool = False):
 
 
 init_session()
-
-# Auto-load on startup, including sessions that cached an empty result before a fix.
-if (
-    not st.session_state.data_loaded
-    or (
-        st.session_state.deals_df.empty
-        and st.session_state.work_orders_df.empty
-        and not st.session_state.data_warnings
-    )
-):
-    load_data()
 
 
 # 3. Sidebar Controls
@@ -107,9 +96,13 @@ with sync_col:
         load_data(force_reload=True)
 with deal_btn:
     if st.button("Deal Data", use_container_width=True):
+        if not st.session_state.data_loaded:
+            load_data()
         st.session_state.selected_data_view = "deals"
 with work_order_btn:
     if st.button("Work Order Data", use_container_width=True):
+        if not st.session_state.data_loaded:
+            load_data()
         st.session_state.selected_data_view = "work_orders"
 
 for warning in st.session_state.data_warnings:
@@ -121,8 +114,8 @@ if st.session_state.selected_data_view == "deals":
         st.dataframe(st.session_state.deals_df, use_container_width=True)
         st.caption(f"Total Rows: {len(st.session_state.deals_df)}")
     else:
-        st.warning("No Deals data loaded. Click 'Sync Monday.com Data' in the sidebar.")
-else:
+        st.warning("No Deals data loaded. Click 'Sync Monday.com Data'.")
+elif st.session_state.selected_data_view == "work_orders":
     st.markdown("#### Work Order Data")
     if not st.session_state.work_orders_df.empty:
         st.dataframe(st.session_state.work_orders_df, use_container_width=True)

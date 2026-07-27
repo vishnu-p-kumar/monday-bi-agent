@@ -1,0 +1,22 @@
+# Sensitive credential files (NEVER COMMIT THESE)
+.env
+*.env
+.streamlit/secrets.toml
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE and OS settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

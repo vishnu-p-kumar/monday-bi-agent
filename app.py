@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from monday_client import fetch_monday_board_data
+from monday_client import LAST_FETCH_WARNINGS, fetch_monday_board_data
 from agent import query_bi_agent, generate_leadership_briefing
 
 # 1. Page Configuration
@@ -30,6 +30,8 @@ def init_session():
         st.session_state.work_orders_df = pd.DataFrame()
     if "data_loaded" not in st.session_state:
         st.session_state.data_loaded = False
+    if "data_warnings" not in st.session_state:
+        st.session_state.data_warnings = []
     if "selected_data_view" not in st.session_state:
         st.session_state.selected_data_view = "deals"
 
@@ -41,16 +43,28 @@ def load_data(force_reload: bool = False):
                 deals, work_orders = fetch_monday_board_data()
                 st.session_state.deals_df = deals
                 st.session_state.work_orders_df = work_orders
+                st.session_state.data_warnings = LAST_FETCH_WARNINGS.copy()
                 st.session_state.data_loaded = True
-                st.toast("Data synchronized successfully!", icon="✅")
+                if deals.empty and work_orders.empty:
+                    st.warning("Monday.com sync completed, but no board data was returned.")
+                else:
+                    st.toast("Data synchronized successfully!", icon="✅")
             except Exception as e:
+                st.session_state.data_warnings = [str(e)]
                 st.error(f"Error synchronizing data from Monday.com: {e}")
 
 
 init_session()
 
-# Auto-load on initial startup if empty
-if not st.session_state.data_loaded:
+# Auto-load on startup, including sessions that cached an empty result before a fix.
+if (
+    not st.session_state.data_loaded
+    or (
+        st.session_state.deals_df.empty
+        and st.session_state.work_orders_df.empty
+        and not st.session_state.data_warnings
+    )
+):
     load_data()
 
 
@@ -87,13 +101,41 @@ with st.sidebar:
 # 4. Main Executive Dashboard Header
 st.title("Executive Intelligence Console")
 
+sync_col, deal_btn, work_order_btn = st.columns([1, 1, 1])
+with sync_col:
+    if st.button("Sync Monday.com Data", use_container_width=True, type="primary"):
+        load_data(force_reload=True)
+with deal_btn:
+    if st.button("Deal Data", use_container_width=True):
+        st.session_state.selected_data_view = "deals"
+with work_order_btn:
+    if st.button("Work Order Data", use_container_width=True):
+        st.session_state.selected_data_view = "work_orders"
+
+for warning in st.session_state.data_warnings:
+    st.warning(warning)
+
+if st.session_state.selected_data_view == "deals":
+    st.markdown("#### Deal Data")
+    if not st.session_state.deals_df.empty:
+        st.dataframe(st.session_state.deals_df, use_container_width=True)
+        st.caption(f"Total Rows: {len(st.session_state.deals_df)}")
+    else:
+        st.warning("No Deals data loaded. Click 'Sync Monday.com Data' in the sidebar.")
+else:
+    st.markdown("#### Work Order Data")
+    if not st.session_state.work_orders_df.empty:
+        st.dataframe(st.session_state.work_orders_df, use_container_width=True)
+        st.caption(f"Total Rows: {len(st.session_state.work_orders_df)}")
+    else:
+        st.info("No Work Orders data returned or configured.")
+
 st.divider()
 
 # 5. Dashboard Tabbed Navigation
-chat_tab, briefing_tab, data_tab = st.tabs([
+chat_tab, briefing_tab = st.tabs([
     "💬 AI Executive Copilot", 
-    "📑 Leadership Briefings", 
-    "📊 Raw Board Inspector"
+    "📑 Leadership Briefings"
 ])
 
 
@@ -164,31 +206,3 @@ with briefing_tab:
             st.info(st.session_state.current_briefing)
         else:
             st.write("Select parameters on the left and click **Generate Briefing** to create a structured report.")
-
-
-# --- TAB 3: RAW DATA INSPECTOR ---
-with data_tab:
-    st.subheader("Sanitized Board Records")
-
-    deal_btn, work_order_btn = st.columns(2)
-    with deal_btn:
-        if st.button("Deal Data", use_container_width=True):
-            st.session_state.selected_data_view = "deals"
-    with work_order_btn:
-        if st.button("Work Order Data", use_container_width=True):
-            st.session_state.selected_data_view = "work_orders"
-
-    if st.session_state.selected_data_view == "deals":
-        st.markdown("#### Deal Data")
-        if not st.session_state.deals_df.empty:
-            st.dataframe(st.session_state.deals_df, use_container_width=True)
-            st.caption(f"Total Rows: {len(st.session_state.deals_df)}")
-        else:
-            st.warning("No Deals data loaded. Click 'Sync Monday.com Data' in the sidebar.")
-    else:
-        st.markdown("#### Work Order Data")
-        if not st.session_state.work_orders_df.empty:
-            st.dataframe(st.session_state.work_orders_df, use_container_width=True)
-            st.caption(f"Total Rows: {len(st.session_state.work_orders_df)}")
-        else:
-            st.info("No Work Orders data returned or configured.")

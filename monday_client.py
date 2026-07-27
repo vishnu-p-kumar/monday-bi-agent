@@ -8,6 +8,8 @@ from data_processor import process_board_data
 # Load local .env variables if present
 load_dotenv()
 
+LAST_FETCH_WARNINGS = []
+
 
 def get_secret(key_name: str, default: str = "") -> str:
     """
@@ -27,7 +29,9 @@ def fetch_board_items(board_id: str, api_key: str) -> list:
     Executes a GraphQL query against Monday.com API v2 to retrieve items and column values.
     """
     if not api_key or not board_id:
-        print(f"⚠️ Missing API Key or Board ID for board {board_id}")
+        warning = f"Missing API key or board ID for board {board_id}."
+        LAST_FETCH_WARNINGS.append(warning)
+        print(f"⚠️ {warning}")
         return []
 
     url = "https://api.monday.com/v2"
@@ -42,13 +46,12 @@ def fetch_board_items(board_id: str, api_key: str) -> list:
     query ($board_id: [ID!]) {
       boards (ids: $board_id) {
         name
-        items_page {
+        items_page (limit: 500) {
           items {
             id
             name
             column_values {
               id
-              title
               text
               value
             }
@@ -68,9 +71,20 @@ def fetch_board_items(board_id: str, api_key: str) -> list:
         response.raise_for_status()
         data = response.json()
 
+        if data.get("errors"):
+            warning = f"Monday.com returned an error for board {board_id}: {data['errors']}"
+            LAST_FETCH_WARNINGS.append(warning)
+            print(f"⚠️ {warning}")
+            return []
+
         boards = data.get("data", {}).get("boards", [])
         if not boards:
-            print(f"⚠️ No boards found for ID: {board_id}")
+            warning = (
+                f"No board found for ID {board_id}. Check that the board ID is correct "
+                "and that the Monday.com API token has access to it."
+            )
+            LAST_FETCH_WARNINGS.append(warning)
+            print(f"⚠️ {warning}")
             return []
 
         items = boards[0].get("items_page", {}).get("items", [])
@@ -92,10 +106,14 @@ def fetch_board_items(board_id: str, api_key: str) -> list:
         return parsed_items
 
     except requests.exceptions.RequestException as req_err:
-        print(f"❌ Network/API Error querying board {board_id}: {req_err}")
+        warning = f"Network/API error querying board {board_id}: {req_err}"
+        LAST_FETCH_WARNINGS.append(warning)
+        print(f"❌ {warning}")
         return []
     except Exception as err:
-        print(f"❌ Unexpected Error parsing board {board_id}: {err}")
+        warning = f"Unexpected error parsing board {board_id}: {err}"
+        LAST_FETCH_WARNINGS.append(warning)
+        print(f"❌ {warning}")
         return []
 
 
@@ -107,6 +125,8 @@ def fetch_monday_board_data():
     api_key = get_secret("MONDAY_API_KEY")
     deals_board_id = get_secret("DEALS_BOARD_ID")
     work_orders_board_id = get_secret("WORK_ORDERS_BOARD_ID")
+
+    LAST_FETCH_WARNINGS.clear()
 
     deals_raw = fetch_board_items(deals_board_id, api_key)
     work_orders_raw = fetch_board_items(work_orders_board_id, api_key)
